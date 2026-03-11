@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>手机遥控电脑 · 控制台</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 600px;
+            margin: 20px auto;
+            padding: 15px;
+            background: #f5f5f5;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h2 {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: #333;
+            margin-top: 0;
+        }
+        .status-indicator {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background-color: #ff4d4d; /* 默认红色：未连接 */
+            box-shadow: 0 0 5px rgba(255,0,0,0.5);
+            transition: background-color 0.3s ease;
+        }
+        .status-indicator.connected {
+            background-color: #28a745; /* 绿色：已连接 */
+            box-shadow: 0 0 5px rgba(40,167,69,0.5);
+        }
+        .status-text {
+            font-size: 14px;
+            color: #666;
+            margin-left: auto;
+        }
+        .message-area {
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 10px;
+            height: 300px;
+            overflow-y: auto;
+            margin: 20px 0;
+            font-size: 14px;
+        }
+        .message {
+            margin: 8px 0;
+            padding: 6px 10px;
+            border-radius: 18px;
+            max-width: 80%;
+            word-wrap: break-word;
+        }
+        .message.sent {
+            background-color: #007bff;
+            color: white;
+            margin-left: auto;
+            text-align: right;
+        }
+        .message.received {
+            background-color: #e9ecef;
+            color: #333;
+            margin-right: auto;
+        }
+        .message.system {
+            background-color: #fff3cd;
+            color: #856404;
+            text-align: center;
+            font-size: 12px;
+            margin: 5px auto;
+            max-width: 100%;
+        }
+        .input-area {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        input[type="text"] {
+            flex: 1;
+            padding: 12px;
+            border: 1px solid #ced4da;
+            border-radius: 24px;
+            font-size: 16px;
+            outline: none;
+        }
+        input[type="text"]:focus {
+            border-color: #007bff;
+            box-shadow: 0 0 0 2px rgba(0,123,255,0.25);
+        }
+        button {
+            padding: 12px 24px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 24px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 15px;
+            font-size: 14px;
+            color: #999;
+        }
+    </style>
+</head>
+<body>
+<h2>
+    <span class="status-indicator" id="statusLight"></span>
+    手机遥控电脑
+    <span class="status-text" id="statusText">未连接</span>
+</h2>
+
+<div class="message-area" id="messageArea"></div>
+
+<div class="input-area">
+    <input type="text" id="messageInput" placeholder="输入指令，例如「打开计算器」" disabled>
+    <button id="sendBtn" disabled>发送</button>
+</div>
+
+<div class="footer">
+    <span id="connInfo"></span>
+    <span>v1.0</span>
+</div>
+
+<script>
+    (function() {
+        // DOM 元素
+        const statusLight = document.getElementById('statusLight');
+        const statusText = document.getElementById('statusText');
+        const messageArea = document.getElementById('messageArea');
+        const messageInput = document.getElementById('messageInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const connInfo = document.getElementById('connInfo');
+
+        let socket = null;
+
+        // 辅助函数：添加消息到界面
+        function addMessage(sender, content, type = 'normal') {
+            const msgDiv = document.createElement('div');
+            msgDiv.classList.add('message');
+            if (type === 'system') {
+                msgDiv.classList.add('system');
+            } else if (sender === '我') {
+                msgDiv.classList.add('sent');
+            } else {
+                msgDiv.classList.add('received');
+            }
+
+            const prefix = type === 'system' ? '' : `<strong>${sender}:</strong> `;
+            msgDiv.innerHTML = prefix + content;
+            messageArea.appendChild(msgDiv);
+            messageArea.scrollTop = messageArea.scrollHeight;
+        }
+
+        // 更新连接状态界面
+        function setConnected(connected) {
+            if (connected) {
+                statusLight.className = 'status-indicator connected';
+                statusText.innerText = '已连接';
+                messageInput.disabled = false;
+                sendBtn.disabled = false;
+                connInfo.innerText = '在线';
+            } else {
+                statusLight.className = 'status-indicator';
+                statusText.innerText = '未连接';
+                messageInput.disabled = true;
+                sendBtn.disabled = true;
+                connInfo.innerText = '离线';
+            }
+        }
+
+        // 建立 WebSocket 连接
+        function connectWebSocket() {
+            // 自动获取当前主机（IP和端口）
+            const host = window.location.host;  // 例如 192.168.1.100:8080
+            const wsUrl = 'ws://' + host + '/control';
+            addMessage('系统', '正在连接 ' + wsUrl, 'system');
+
+            try {
+                socket = new WebSocket(wsUrl);
+
+                socket.onopen = function() {
+                    console.log('WebSocket 已连接');
+                    setConnected(true);
+                    addMessage('系统', '✅ 连接成功', 'system');
+                };
+
+                socket.onmessage = function(event) {
+                    console.log('收到消息:', event.data);
+                    addMessage('电脑', event.data);
+                };
+
+                socket.onerror = function(error) {
+                    console.error('WebSocket 错误:', error);
+                    addMessage('系统', '❌ 连接错误: ' + (error.message || '未知错误'), 'system');
+                    setConnected(false);
+                };
+
+                socket.onclose = function(event) {
+                    console.log('WebSocket 关闭', event);
+                    addMessage('系统', '连接已关闭 (代码 ' + event.code + ')', 'system');
+                    setConnected(false);
+                    // 可选：尝试重连，这里简单处理，不再自动重连
+                };
+            } catch (e) {
+                console.error('创建 WebSocket 异常:', e);
+                addMessage('系统', '❌ 创建连接失败: ' + e.message, 'system');
+                setConnected(false);
+            }
+        }
+
+        // 发送消息
+        function sendMessage() {
+            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                addMessage('系统', '连接未建立，无法发送', 'system');
+                return;
+            }
+            const msg = messageInput.value.trim();
+            if (msg === '') return;
+
+            addMessage('我', msg);
+            socket.send(msg);
+            messageInput.value = '';
+        }
+
+        // 页面加载自动连接
+        window.addEventListener('load', function() {
+            connectWebSocket();
+        });
+
+        // 发送按钮点击事件
+        sendBtn.addEventListener('click', sendMessage);
+
+        // 回车发送
+        messageInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        // 可选：在页面关闭前主动关闭连接（但一般不需要）
+        window.addEventListener('beforeunload', function() {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.close();
+            }
+        });
+    })();
+</script>
+</body>
+</html>

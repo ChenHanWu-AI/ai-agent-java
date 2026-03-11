@@ -1,0 +1,16 @@
+# build
+target/
+
+# idea
+.idea/
+*.iml
+
+# logs
+*.log
+
+# api key
+deepseek.txt
+.env
+
+# system
+.DS_Store
